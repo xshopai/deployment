@@ -24,10 +24,10 @@ export NC='\033[0m' # No Color
 # Get the directory where common.sh is located
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MODULES_DIR="$COMMON_DIR"
-export SCRIPTS_DIR="$(dirname "$COMMON_DIR")"
-export LOCAL_DIR="$(dirname "$SCRIPTS_DIR")"
-export INFRA_DIR="$(dirname "$LOCAL_DIR")"
-export WORKSPACE_DIR="$(dirname "$INFRA_DIR")"
+export SCRIPTS_DIR="$(dirname "$COMMON_DIR")"              # deployment/local/docker
+export LOCAL_DIR="$(dirname "$SCRIPTS_DIR")"                # deployment/local
+export DEPLOYMENT_DIR="$(dirname "$LOCAL_DIR")"             # deployment
+export WORKSPACE_DIR="$(dirname "$DEPLOYMENT_DIR")"         # xshopai (workspace root)
 
 # Service source code directories (for building images)
 export SERVICE_REPOS_DIR="$WORKSPACE_DIR"

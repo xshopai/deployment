@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # =============================================================================
-# Module 02: Infrastructure Services (RabbitMQ, Mailpit)
+# Module 02: Infrastructure Services (RabbitMQ, Redis, Mailpit)
 # =============================================================================
 # Deploys shared infrastructure services:
 # - RabbitMQ (Message Broker)
+# - Redis (Caching & Session Store)
 # - Mailpit (Email Testing)
-#
-# Note: Redis and Zipkin are managed by Dapr (dapr init)
 # =============================================================================
 
 set -e
@@ -57,6 +56,74 @@ fi
 wait_for_container "$RABBITMQ_CONTAINER" 60
 
 # =============================================================================
+# Redis (Caching & Session Store)
+# =============================================================================
+print_subheader "Redis Cache Server"
+
+REDIS_CONTAINER="xshopai-redis"
+REDIS_IMAGE="redis:7-alpine"
+REDIS_PORT="6380"  # Using 6380 to avoid conflict with Dapr's Redis on 6379
+
+ensure_image "$REDIS_IMAGE"
+
+if is_container_running "$REDIS_CONTAINER"; then
+    print_info "Redis is already running"
+else
+    remove_container "$REDIS_CONTAINER"
+    
+    docker run -d \
+        --name "$REDIS_CONTAINER" \
+        --network "$DOCKER_NETWORK" \
+        --restart unless-stopped \
+        -p "${REDIS_PORT}:6379" \
+        -v xshopai_redis_data:/data \
+        --health-cmd "redis-cli ping | grep PONG" \
+        --health-interval 10s \
+        --health-timeout 5s \
+        --health-retries 5 \
+        "$REDIS_IMAGE" \
+        redis-server --appendonly yes
+    
+    print_success "Redis started"
+fi
+
+wait_for_container "$REDIS_CONTAINER" 30
+
+# =============================================================================
+# Zipkin (Distributed Tracing)
+# =============================================================================
+print_subheader "Zipkin Distributed Tracing"
+
+ZIPKIN_CONTAINER="xshopai-zipkin"
+ZIPKIN_IMAGE="openzipkin/zipkin:latest"
+ZIPKIN_PORT="9412"  # Using 9412 to avoid conflict with Dapr's Zipkin on 9411
+
+ensure_image "$ZIPKIN_IMAGE"
+
+if is_container_running "$ZIPKIN_CONTAINER"; then
+    print_info "Zipkin is already running"
+else
+    remove_container "$ZIPKIN_CONTAINER"
+    
+    docker run -d \
+        --name "$ZIPKIN_CONTAINER" \
+        --network "$DOCKER_NETWORK" \
+        --restart unless-stopped \
+        -p "${ZIPKIN_PORT}:9411" \
+        -e STORAGE_TYPE=mem \
+        -v xshopai_zipkin_data:/zipkin \
+        --health-cmd "wget --spider -q http://localhost:9411/health || exit 1" \
+        --health-interval 10s \
+        --health-timeout 5s \
+        --health-retries 3 \
+        "$ZIPKIN_IMAGE"
+    
+    print_success "Zipkin started"
+fi
+
+wait_for_container "$ZIPKIN_CONTAINER" 30
+
+# =============================================================================
 # Mailpit (Email Testing)
 # =============================================================================
 print_subheader "Mailpit Email Testing Server"
@@ -100,10 +167,9 @@ print_header "Infrastructure Services Deployed"
 
 echo -e "\n${CYAN}Service URLs:${NC}"
 echo -e "  RabbitMQ Management:  ${GREEN}http://localhost:${RABBITMQ_MGMT_PORT}${NC} (${RABBITMQ_USER}/${RABBITMQ_PASS})"
-echo -e "  Redis (Dapr):         ${GREEN}localhost:6379${NC} (managed by dapr init)"
-echo -e "  Zipkin (Dapr):        ${GREEN}http://localhost:9411${NC} (managed by dapr init)"
+echo -e "  Redis Cache:          ${GREEN}localhost:${REDIS_PORT}${NC}"
+echo -e "  Zipkin Tracing:       ${GREEN}http://localhost:${ZIPKIN_PORT}${NC}"
 echo -e "  Mailpit UI:           ${GREEN}http://localhost:${MAILPIT_UI_PORT}${NC}"
-
-echo -e "\n${YELLOW}Note:${NC} Redis and Zipkin are managed by Dapr. Run 'dapr init' to create dapr_redis and dapr_zipkin containers."
+echo -e "  Mailpit SMTP:         ${GREEN}localhost:${MAILPIT_SMTP_PORT}${NC}"
 
 print_success "Infrastructure deployment complete"

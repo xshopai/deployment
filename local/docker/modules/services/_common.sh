@@ -48,7 +48,7 @@ deploy_service() {
     
     local container_name="xshopai-${service_name}"
     local image_name="xshopai/${service_name}:${IMAGE_TAG}"
-    local service_dir="$SERVICES_DIR/${service_name}"
+    local service_dir="$SERVICE_REPOS_DIR/${service_name}"
     
     print_subheader "Deploying ${service_name} (port ${service_port})"
     
@@ -71,42 +71,19 @@ deploy_service() {
     
     # Stop existing containers
     remove_container "$container_name"
-    if [ "$DAPR_ENABLED" = "true" ]; then
-        remove_container "${container_name}-dapr"
-    fi
-    
-    # Prepare environment file path
-    local env_file=""
-    if [ -f "$service_dir/.env.docker" ]; then
-        env_file="$service_dir/.env.docker"
-    elif [ -f "$service_dir/.env.local" ]; then
-        env_file="$service_dir/.env.local"
-    elif [ -f "$service_dir/.env" ]; then
-        env_file="$service_dir/.env"
-    fi
     
     # Build docker run command
+    # All environment variables and secrets are passed via -e flags by deployment scripts
+    # Services connect directly to RabbitMQ (no Dapr sidecars)
     local docker_cmd="docker run -d \
         --name $container_name \
         --network $DOCKER_NETWORK \
         --restart unless-stopped \
         -p ${service_port}:${service_port}"
     
-    # Add environment file if exists
-    if [ -n "$env_file" ]; then
-        docker_cmd="$docker_cmd --env-file $env_file"
-    fi
-    
     # Add extra environment variables
     if [ -n "$extra_env" ]; then
         docker_cmd="$docker_cmd $extra_env"
-    fi
-    
-    # Add Dapr-related environment variables if Dapr is enabled
-    if [ "$DAPR_ENABLED" = "true" ]; then
-        docker_cmd="$docker_cmd \
-            -e DAPR_HTTP_PORT=3500 \
-            -e DAPR_GRPC_PORT=50001"
     fi
     
     # Add image name
@@ -115,11 +92,6 @@ deploy_service() {
     # Run service container
     eval "$docker_cmd"
     print_success "${service_name} container started"
-    
-    # Deploy Dapr sidecar if enabled
-    if [ "$DAPR_ENABLED" = "true" ]; then
-        deploy_dapr_sidecar "$service_name" "$service_port" "$container_name" "$dapr_components_path"
-    fi
     
     # Wait for service to be ready
     wait_for_container "$container_name" 30
@@ -145,12 +117,12 @@ deploy_dapr_sidecar() {
     ensure_image "$DAPR_IMAGE"
     
     # Build Dapr sidecar command
+    # Use --network container: to share network namespace with app container
+    # This allows app to reach Dapr at localhost:3500
     local dapr_cmd="docker run -d \
         --name $sidecar_name \
-        --network $DOCKER_NETWORK \
-        --restart unless-stopped \
-        -e DAPR_APP_ID=$app_id \
-        -e DAPR_APP_PORT=$app_port"
+        --network container:$app_container \
+        --restart unless-stopped"
     
     # Mount components path if specified
     if [ -n "$components_path" ] && [ -d "$service_dir/$components_path" ]; then
@@ -169,10 +141,6 @@ deploy_dapr_sidecar() {
     if [ -n "$components_path" ] && [ -d "$service_dir/$components_path" ]; then
         dapr_cmd="$dapr_cmd --resources-path /components"
     fi
-    
-    # Configure Dapr to connect to the app container
-    # Using Docker network, containers can reach each other by name
-    dapr_cmd="$dapr_cmd --app-channel-address $app_container"
     
     eval "$dapr_cmd"
     print_success "Dapr sidecar started for ${app_id}"

@@ -24,6 +24,9 @@
 #   --build              Build Docker images before deploying
 #   --dapr               Enable Dapr sidecars for services
 #   --clean              Remove all containers and volumes before deploying
+#   --parallel           Deploy services in parallel (faster, default for --all)
+#   --sequential         Deploy services sequentially (useful for debugging)
+#   --seed               Seed demo data (users, products, inventory) after deployment
 #   --help               Show this help message
 #
 # Individual Services (can combine multiple):
@@ -52,9 +55,15 @@
 #   ./deploy.sh --build --product-service # Build and deploy product-service
 #   ./deploy.sh --dapr --all              # Deploy all with Dapr sidecars
 #   ./deploy.sh --clean --all             # Clean and redeploy everything
+#   ./deploy.sh --parallel --services     # Deploy all services in parallel
+#   ./deploy.sh --sequential --all        # Deploy everything sequentially
+#   ./deploy.sh --seed                    # Deploy and seed demo data
 # =============================================================================
 
 set -e
+
+# Capture start time for deployment duration
+DEPLOY_START_TIME=$(date +%s)
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,6 +84,9 @@ DEPLOY_FRONTENDS=false
 BUILD_IMAGES=false
 DAPR_ENABLED=false
 CLEAN_FIRST=false
+PARALLEL_DEPLOY=true    # Default to parallel
+SEQUENTIAL_DEPLOY=false
+SEED_DATA=false
 
 # Individual service flags
 declare -A SERVICES_TO_DEPLOY
@@ -108,7 +120,7 @@ while [[ $# -gt 0 ]]; do
             DEPLOY_ALL=true
             shift
             ;;
-        --infra)
+        --infra|--infrastructure)
             DEPLOY_INFRA=true
             shift
             ;;
@@ -136,6 +148,20 @@ while [[ $# -gt 0 ]]; do
             ;;
         --clean)
             CLEAN_FIRST=true
+            shift
+            ;;
+        --parallel)
+            PARALLEL_DEPLOY=true
+            SEQUENTIAL_DEPLOY=false
+            shift
+            ;;
+        --sequential)
+            SEQUENTIAL_DEPLOY=true
+            PARALLEL_DEPLOY=false
+            shift
+            ;;
+        --seed)
+            SEED_DATA=true
             shift
             ;;
         --help|-h)
@@ -203,6 +229,8 @@ echo -e "  Dapr Enabled:     ${DAPR_ENABLED}"
 echo -e "  Clean First:      ${CLEAN_FIRST}"
 echo -e "  Deploy Infra:     ${DEPLOY_INFRA}"
 echo -e "  Deploy Databases: ${DEPLOY_DBS}"
+echo -e "  Parallel Deploy:  ${PARALLEL_DEPLOY}"
+echo -e "  Seed Data:        ${SEED_DATA}"
 echo ""
 
 if [ ${#SERVICES_TO_DEPLOY[@]} -gt 0 ]; then
@@ -215,69 +243,6 @@ fi
 
 # Check Docker
 check_docker
-
-# =============================================================================
-# Initialize Dapr (if not already initialized)
-# =============================================================================
-print_header "Checking Dapr Installation"
-
-# Check if Dapr CLI is installed
-if ! command -v dapr &> /dev/null; then
-    print_error "Dapr CLI not found!"
-    echo -e "\n${YELLOW}Please install Dapr CLI:${NC}"
-    echo -e "  Windows:  ${CYAN}winget install Dapr.CLI${NC}"
-    echo -e "  macOS:    ${CYAN}brew install dapr/tap/dapr-cli${NC}"
-    echo -e "  Linux:    ${CYAN}wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash${NC}"
-    echo -e "\nOr visit: ${CYAN}https://docs.dapr.io/getting-started/install-dapr-cli/${NC}"
-    exit 1
-fi
-
-print_success "Dapr CLI found: $(dapr version | grep 'CLI version' | awk '{print $3}')"
-
-# Check if Dapr runtime is initialized
-print_step "Checking Dapr runtime initialization..."
-DAPR_VERSION_OUTPUT=$(dapr version 2>&1)
-
-if echo "$DAPR_VERSION_OUTPUT" | grep -q "Runtime version: n/a"; then
-    print_warning "Dapr runtime not initialized"
-    print_step "Initializing Dapr runtime (this may take a minute)..."
-    
-    if dapr init; then
-        print_success "Dapr initialized successfully!"
-        echo -e "${CYAN}Created containers:${NC}"
-        echo -e "  - dapr_redis (port 6379)     - State store and caching"
-        echo -e "  - dapr_zipkin (port 9411)    - Distributed tracing"
-        echo -e "  - dapr_placement (port 6050) - Actor placement"
-        echo -e "  - dapr_scheduler (port 6060) - Job scheduling"
-    else
-        print_error "Failed to initialize Dapr"
-        echo -e "\n${YELLOW}Try running manually:${NC} ${CYAN}dapr init${NC}"
-        exit 1
-    fi
-else
-    RUNTIME_VERSION=$(echo "$DAPR_VERSION_OUTPUT" | grep 'Runtime version' | awk '{print $3}')
-    print_success "Dapr runtime already initialized: $RUNTIME_VERSION"
-    
-    # Verify Dapr containers are running
-    print_step "Verifying Dapr containers..."
-    MISSING_CONTAINERS=()
-    
-    for container in "dapr_redis" "dapr_zipkin" "dapr_placement" "dapr_scheduler"; do
-        if ! docker ps --filter "name=$container" --format "{{.Names}}" | grep -q "$container"; then
-            MISSING_CONTAINERS+=("$container")
-        fi
-    done
-    
-    if [ ${#MISSING_CONTAINERS[@]} -gt 0 ]; then
-        print_warning "Some Dapr containers are not running: ${MISSING_CONTAINERS[*]}"
-        print_step "Reinitializing Dapr..."
-        dapr uninstall --all
-        dapr init
-        print_success "Dapr reinitialized"
-    else
-        print_success "All Dapr containers are running"
-    fi
-fi
 
 # =============================================================================
 # Clean up if requested
@@ -333,16 +298,135 @@ fi
 if [ ${#SERVICES_TO_DEPLOY[@]} -gt 0 ]; then
     print_header "Deploying Application Services"
     
-    for service in "${!SERVICES_TO_DEPLOY[@]}"; do
-        service_script="$SERVICES_DIR/${service}.sh"
+    if [ "$PARALLEL_DEPLOY" = true ] && [ ${#SERVICES_TO_DEPLOY[@]} -gt 1 ]; then
+        echo -e "${CYAN}⚡ Deploying ${#SERVICES_TO_DEPLOY[@]} services in parallel...${NC}"
+        echo ""
         
-        if [ -f "$service_script" ]; then
-            print_subheader "Deploying $service"
-            source "$service_script"
-        else
-            print_error "Service script not found: $service_script"
+        # Create temp directory for results
+        DEPLOY_TEMP_DIR=$(mktemp -d)
+        trap "rm -rf $DEPLOY_TEMP_DIR" EXIT
+        
+        # Track PIDs for parallel processes
+        declare -A SERVICE_PIDS
+        
+        # Start all deployments in parallel
+        for service in "${!SERVICES_TO_DEPLOY[@]}"; do
+            service_script="$SERVICES_DIR/${service}.sh"
+            
+            if [ -f "$service_script" ]; then
+                (
+                    # Redirect output to service-specific log file
+                    exec > "$DEPLOY_TEMP_DIR/${service}.log" 2>&1
+                    
+                    print_subheader "Deploying $service"
+                    if source "$service_script"; then
+                        echo "SUCCESS" > "$DEPLOY_TEMP_DIR/${service}.status"
+                    else
+                        echo "FAILED" > "$DEPLOY_TEMP_DIR/${service}.status"
+                    fi
+                ) &
+                SERVICE_PIDS[$service]=$!
+                echo -e "  ${YELLOW}→${NC} Started $service (PID: ${SERVICE_PIDS[$service]})"
+            else
+                echo -e "  ${RED}✗${NC} Service script not found: $service_script"
+                echo "FAILED" > "$DEPLOY_TEMP_DIR/${service}.status"
+            fi
+        done
+        
+        echo ""
+        echo -e "${CYAN}⏳ Waiting for all services to deploy...${NC}"
+        
+        # Wait for all processes and collect results
+        FAILED_SERVICES=()
+        SUCCESS_SERVICES=()
+        
+        for service in "${!SERVICE_PIDS[@]}"; do
+            pid=${SERVICE_PIDS[$service]}
+            if wait $pid 2>/dev/null; then
+                if [ -f "$DEPLOY_TEMP_DIR/${service}.status" ] && [ "$(cat $DEPLOY_TEMP_DIR/${service}.status)" = "SUCCESS" ]; then
+                    SUCCESS_SERVICES+=("$service")
+                    echo -e "  ${GREEN}✓${NC} $service deployed successfully"
+                else
+                    FAILED_SERVICES+=("$service")
+                    echo -e "  ${RED}✗${NC} $service deployment failed"
+                fi
+            else
+                FAILED_SERVICES+=("$service")
+                echo -e "  ${RED}✗${NC} $service deployment failed (process error)"
+            fi
+        done
+        
+        echo ""
+        
+        # Show summary
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}Parallel Deployment Summary${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "  ${GREEN}✓ Successful:${NC} ${#SUCCESS_SERVICES[@]}/${#SERVICES_TO_DEPLOY[@]}"
+        
+        if [ ${#FAILED_SERVICES[@]} -gt 0 ]; then
+            echo -e "  ${RED}✗ Failed:${NC} ${FAILED_SERVICES[*]}"
+            echo ""
+            echo -e "${YELLOW}View logs for failed services:${NC}"
+            for failed in "${FAILED_SERVICES[@]}"; do
+                echo -e "  cat $DEPLOY_TEMP_DIR/${failed}.log"
+            done
         fi
-    done
+        echo ""
+        
+    else
+        # Sequential deployment
+        if [ ${#SERVICES_TO_DEPLOY[@]} -gt 1 ]; then
+            echo -e "${CYAN}🔄 Deploying services sequentially...${NC}"
+            echo ""
+        fi
+        
+        for service in "${!SERVICES_TO_DEPLOY[@]}"; do
+            service_script="$SERVICES_DIR/${service}.sh"
+            
+            if [ -f "$service_script" ]; then
+                print_subheader "Deploying $service"
+                source "$service_script"
+            else
+                print_error "Service script not found: $service_script"
+            fi
+        done
+    fi
+fi
+
+# =============================================================================
+# Seed Demo Data
+# =============================================================================
+if [ "$SEED_DATA" = true ]; then
+    print_header "Seeding Demo Data"
+    
+    SEED_DIR="$SCRIPT_DIR/../../seed"
+    
+    if [ -d "$SEED_DIR" ]; then
+        print_step "Installing seeder dependencies..."
+        pip install -q -r "$SEED_DIR/requirements.txt" 2>/dev/null || {
+            print_warning "pip install failed, attempting with pip3..."
+            pip3 install -q -r "$SEED_DIR/requirements.txt" 2>/dev/null || {
+                print_error "Failed to install seeder dependencies"
+                print_error "Run manually: pip install -r deployment/seed/requirements.txt"
+            }
+        }
+        
+        print_step "Running seeder..."
+        
+        # Set database URLs from container networking (with auth credentials)
+        export USER_SERVICE_DATABASE_URL="mongodb://admin:admin123@localhost:27018/user_service_db?authSource=admin"
+        export PRODUCT_SERVICE_DATABASE_URL="mongodb://admin:admin123@localhost:27019/product_service_db?authSource=admin"
+        export INVENTORY_SERVICE_DATABASE_URL="mysql://admin:admin123@localhost:3306/inventory_service_db"
+        
+        python "$SEED_DIR/seed.py" --clear || python3 "$SEED_DIR/seed.py" --clear || {
+            print_error "Seeding failed. Check database connectivity."
+        }
+        
+        print_success "Demo data seeded successfully"
+    else
+        print_error "Seed directory not found: $SEED_DIR"
+    fi
 fi
 
 # =============================================================================
@@ -364,20 +448,20 @@ echo -e "  Customer UI:            ${GREEN}http://localhost:3000${NC}"
 echo -e "  Admin UI:               ${GREEN}http://localhost:3001${NC}"
 
 echo -e "\n${CYAN}🔌 API Services:${NC}"
-echo -e "  Web BFF:                ${GREEN}http://localhost:8014${NC}"
-echo -e "  Auth Service:           ${GREEN}http://localhost:8004${NC}"
-echo -e "  User Service:           ${GREEN}http://localhost:8002${NC}"
 echo -e "  Product Service:        ${GREEN}http://localhost:8001${NC}"
+echo -e "  User Service:           ${GREEN}http://localhost:8002${NC}"
+echo -e "  Admin Service:          ${GREEN}http://localhost:8003${NC}"
+echo -e "  Auth Service:           ${GREEN}http://localhost:8004${NC}"
 echo -e "  Inventory Service:      ${GREEN}http://localhost:8005${NC}"
 echo -e "  Order Service:          ${GREEN}http://localhost:8006${NC}"
-echo -e "  Payment Service:        ${GREEN}http://localhost:8009${NC}"
-echo -e "  Cart Service:           ${GREEN}http://localhost:8008${NC}"
-echo -e "  Review Service:         ${GREEN}http://localhost:8010${NC}"
-echo -e "  Admin Service:          ${GREEN}http://localhost:8003${NC}"
 echo -e "  Order Processor:        ${GREEN}http://localhost:8007${NC}"
+echo -e "  Cart Service:           ${GREEN}http://localhost:8008${NC}"
+echo -e "  Payment Service:        ${GREEN}http://localhost:8009${NC}"
+echo -e "  Review Service:         ${GREEN}http://localhost:8010${NC}"
 echo -e "  Notification Service:   ${GREEN}http://localhost:8011${NC}"
 echo -e "  Audit Service:          ${GREEN}http://localhost:8012${NC}"
 echo -e "  Chat Service:           ${GREEN}http://localhost:8013${NC}"
+echo -e "  Web BFF:                ${GREEN}http://localhost:8014${NC}"
 
 echo -e "\n${CYAN}🛠️ Infrastructure:${NC}"
 echo -e "  RabbitMQ Management:    ${GREEN}http://localhost:15672${NC} (admin/admin123)"
@@ -402,5 +486,23 @@ echo -e "  View container logs:    ${YELLOW}docker logs -f xshopai-<service-name
 echo -e "  Deploy single service:  ${YELLOW}./deploy.sh --<service-name>${NC}"
 echo -e "  Stop all containers:    ${YELLOW}./stop.sh${NC}"
 echo -e "  Check status:           ${YELLOW}./status.sh${NC}"
+
+if [ "$SEED_DATA" = true ]; then
+    echo -e "\n${CYAN}👤 Demo Credentials:${NC}"
+    echo -e "  Customer:    ${GREEN}guest@xshopai.com${NC} / ${GREEN}guest${NC}"
+    echo -e "  Admin:       ${GREEN}admin@xshopai.com${NC} / ${GREEN}admin${NC}"
+fi
+
+# Calculate and display deployment duration
+DEPLOY_END_TIME=$(date +%s)
+DEPLOY_DURATION=$((DEPLOY_END_TIME - DEPLOY_START_TIME))
+DEPLOY_MINUTES=$((DEPLOY_DURATION / 60))
+DEPLOY_SECONDS=$((DEPLOY_DURATION % 60))
+
+if [ $DEPLOY_MINUTES -gt 0 ]; then
+    echo -e "\n${CYAN}⏱️  Deployment completed in ${GREEN}${DEPLOY_MINUTES}m ${DEPLOY_SECONDS}s${NC}"
+else
+    echo -e "\n${CYAN}⏱️  Deployment completed in ${GREEN}${DEPLOY_SECONDS}s${NC}"
+fi
 
 print_success "Deployment completed successfully!"

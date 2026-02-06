@@ -61,8 +61,8 @@ print_subheader "PostgreSQL for Order Processor Service"
 ORDER_PROC_PG_CONTAINER="xshopai-order-processor-postgres"
 ORDER_PROC_PG_PORT="5435"
 ORDER_PROC_PG_DB="order_processor_db"
-ORDER_PROC_PG_USER="${ORDER_PROC_PG_USER:-postgres}"
-ORDER_PROC_PG_PASS="${ORDER_PROC_PG_PASS:-postgres}"
+ORDER_PROC_PG_USER="${ORDER_PROC_PG_USER:-admin}"
+ORDER_PROC_PG_PASS="${ORDER_PROC_PG_PASS:-admin123}"
 
 if is_container_running "$ORDER_PROC_PG_CONTAINER"; then
     print_info "Order Processor PostgreSQL is already running"

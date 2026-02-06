@@ -36,6 +36,7 @@ cd local/docker
 ```
 
 **Access the platform:**
+
 - Customer UI: http://localhost:3000
 - Admin UI: http://localhost:3001
 - RabbitMQ Management: http://localhost:15672 (admin/admin123)
@@ -61,12 +62,12 @@ deployment/
 
 ## 🎯 Deployment Options
 
-| Environment | Technology | Use Case | Setup Time | Status |
-|-------------|------------|----------|------------|--------|
-| **Local** | Docker + Dapr | Development & Testing | 5-10 min | ✅ Available |
-| **Local** | Docker Compose | Simpler local setup | 3-5 min | 🔄 Coming Soon |
-| **Azure** | Container Apps | Staging/Production | 30 min | 🔄 Coming Soon |
-| **Azure** | AKS | Enterprise/Scale | 1 hour | 🔄 Coming Soon |
+| Environment | Technology     | Use Case              | Setup Time | Status         |
+| ----------- | -------------- | --------------------- | ---------- | -------------- |
+| **Local**   | Docker + Dapr  | Development & Testing | 5-10 min   | ✅ Available   |
+| **Local**   | Docker Compose | Simpler local setup   | 3-5 min    | 🔄 Coming Soon |
+| **Azure**   | Container Apps | Staging/Production    | 30 min     | 🔄 Coming Soon |
+| **Azure**   | AKS            | Enterprise/Scale      | 1 hour     | 🔄 Coming Soon |
 
 ## 📚 Documentation
 
@@ -109,12 +110,14 @@ When adding new deployment configurations:
 ## 📝 Release Notes
 
 ### v1.0.0 (Current)
+
 - ✅ Local Docker deployment with Dapr
 - ✅ Auto-build missing Docker images
 - ✅ Dapr auto-initialization
 - ✅ All 13+ microservices supported
 
 ### Upcoming
+
 - 🔄 Docker Compose alternative
 - 🔄 Azure Container Apps deployment
 - 🔄 Kubernetes manifests
