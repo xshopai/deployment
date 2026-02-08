@@ -51,6 +51,11 @@ ZIPKIN_URL="http://${ZIPKIN_HOST}:${ZIPKIN_PORT}/api/v2/spans"
 OTEL_TRACES_EXPORTER="zipkin"
 
 # =============================================================================
+# Security Configuration
+# =============================================================================
+JWT_SECRET="q9X2K8vT1mLpR4sNz7YcHd6Qw3EfUaBjM5tGx0VrCi8="
+
+# =============================================================================
 # Deploy product-service
 # =============================================================================
 deploy_python_service "$SERVICE_NAME" "$SERVICE_PORT" \
@@ -63,6 +68,7 @@ deploy_python_service "$SERVICE_NAME" "$SERVICE_PORT" \
      -e MESSAGING_PROVIDER=$MESSAGING_PROVIDER \
      -e RABBITMQ_URL=$RABBITMQ_URL \
      -e RABBITMQ_EXCHANGE=$RABBITMQ_EXCHANGE \
+     -e JWT_SECRET=$JWT_SECRET \
      -e OTEL_EXPORTER_ZIPKIN_ENDPOINT=$ZIPKIN_URL \
      -e OTEL_SERVICE_NAME=$SERVICE_NAME \
      -e OTEL_TRACES_EXPORTER=$OTEL_TRACES_EXPORTER" \
