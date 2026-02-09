@@ -29,7 +29,13 @@ LOG_LEVEL="info"
 # =============================================================================
 SMTP_HOST="xshopai-mailpit"
 SMTP_PORT="1025"
-EMAIL_FROM="noreply@xshopai.com"
+SMTP_SECURE="false"
+SMTP_USER=""
+SMTP_PASS=""
+EMAIL_FROM_ADDRESS="noreply@xshopai.com"
+EMAIL_FROM_NAME="xshopai Notifications"
+EMAIL_ENABLED="true"
+EMAIL_PROVIDER="smtp"
 
 # =============================================================================
 # Messaging Configuration (RabbitMQ)
@@ -71,7 +77,11 @@ deploy_nodejs_service "$SERVICE_NAME" "$SERVICE_PORT" \
      -e OTEL_TRACES_EXPORTER=$OTEL_TRACES_EXPORTER \
      -e SMTP_HOST=$SMTP_HOST \
      -e SMTP_PORT=$SMTP_PORT \
-     -e EMAIL_FROM=$EMAIL_FROM \
+     -e SMTP_SECURE=$SMTP_SECURE \
+     -e EMAIL_FROM_ADDRESS=$EMAIL_FROM_ADDRESS \
+     -e EMAIL_FROM_NAME=$EMAIL_FROM_NAME \
+     -e EMAIL_ENABLED=$EMAIL_ENABLED \
+     -e EMAIL_PROVIDER=$EMAIL_PROVIDER \
      -e USER_SERVICE_URL=$USER_SERVICE_URL \
      -e ORDER_SERVICE_URL=$ORDER_SERVICE_URL \
      -e PRODUCT_SERVICE_URL=$PRODUCT_SERVICE_URL" \

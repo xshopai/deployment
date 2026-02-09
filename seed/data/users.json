@@ -1,7 +1,7 @@
-guest[
+[
   {
     "email": "guest@xshopai.com",
-    "password": "guest",
+    "password": "Guest123!",
     "firstName": "Guest",
     "lastName": "User",
     "phoneNumber": "+1-555-0001",
@@ -32,7 +32,7 @@ guest[
   },
   {
     "email": "admin@xshopai.com",
-    "password": "admin",
+    "password": "Admin123!",
     "firstName": "Admin",
     "lastName": "User",
     "phoneNumber": "+1-555-0002",
