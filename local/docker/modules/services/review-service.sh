@@ -40,7 +40,7 @@ MESSAGING_PROVIDER="rabbitmq"
 RABBITMQ_HOST="xshopai-rabbitmq"
 RABBITMQ_PORT="5672"
 RABBITMQ_URL="amqp://admin:admin123@${RABBITMQ_HOST}:${RABBITMQ_PORT}/"
-RABBITMQ_EXCHANGE="review-events"
+RABBITMQ_EXCHANGE="xshopai.events"
 
 # =============================================================================
 # Security Configuration

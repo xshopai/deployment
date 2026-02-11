@@ -33,7 +33,7 @@ SMTP_SECURE="false"
 SMTP_USER=""
 SMTP_PASS=""
 EMAIL_FROM_ADDRESS="noreply@xshopai.com"
-EMAIL_FROM_NAME="xshopai Notifications"
+EMAIL_FROM_NAME="xshopai_Notifications"
 EMAIL_ENABLED="true"
 EMAIL_PROVIDER="smtp"
 
@@ -44,7 +44,7 @@ MESSAGING_PROVIDER="rabbitmq"
 RABBITMQ_HOST="xshopai-rabbitmq"
 RABBITMQ_PORT="5672"
 RABBITMQ_URL="amqp://admin:admin123@${RABBITMQ_HOST}:${RABBITMQ_PORT}/"
-RABBITMQ_EXCHANGE="notification-events"
+RABBITMQ_EXCHANGE="xshopai.events"
 
 # =============================================================================
 # Observability Configuration (Zipkin)

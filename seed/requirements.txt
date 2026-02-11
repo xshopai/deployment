@@ -1,6 +1,0 @@
-# Database connectors
-pymongo>=4.0.0
-mysql-connector-python>=8.0.0
-
-# Password hashing
-bcrypt>=4.0.0
